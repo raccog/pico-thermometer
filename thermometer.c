@@ -4,17 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  **/
 
-#include <stdio.h>
 #include <math.h>
 #include <string.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
+#include "pico/binary_info.h"
 
+// DHT11 reading result
 typedef struct {
     float humidity;
     float temp_celsius;
 } dht_reading;
 
+// Pins
 const uint DHT_PIN = 15;
 const uint MAX_TIMINGS = 85;
 
@@ -43,6 +45,7 @@ const uint SEGMENT_PINS[] = {
 	E_PIN, F_PIN, G_PIN, P_PIN
 };
 
+// 7-segment bitmasks
 const bool DIGIT_0[] = {1, 1, 1, 1, 1, 1, 0, 0};
 const bool DIGIT_1[] = {0, 1, 1, 0, 0, 0, 0, 0};
 const bool DIGIT_2[] = {1, 1, 0, 1, 1, 0, 1, 0};
@@ -59,9 +62,11 @@ const bool *DIGIT_MASKS[] = {
 	DIGIT_5, DIGIT_6, DIGIT_7, DIGIT_8, DIGIT_9
 };
 
+// Button state
 uint64_t last_press = 0;
 bool should_read = false;
 
+// 7-segment display state
 bool display[][8] = {
 	{0},
 	{0},
@@ -71,25 +76,38 @@ bool display[][8] = {
 
 void read_from_dht(dht_reading *result);
 
+/*
+ *	Sets 7-segment digit state
+ */
 void set_digit(uint selector, uint value) {
 	memcpy(&display[selector], DIGIT_MASKS[value], sizeof(bool[8]));
 }
 
+/*
+ *	Turns off all 7-segment display pins
+ */
 void display_off() {
+	// turn off digit pins
 	for (uint i = 0; i < 4; ++i) {
 		gpio_put(DIGIT_PINS[i], 1);
 	}
 
+	// turn off segment pins
 	for (uint i = 0; i < 8; ++i) {
 		gpio_put(SEGMENT_PINS[i], 0);
 	}
 }
 
+/*
+ *	Display a single digit of the 7-segment display and sleep for 2 milliseconds
+ */
 void display_digit(uint selector) {
+	// set digit pins
 	for (uint i = 0; i < 4; ++i) {
 		gpio_put(DIGIT_PINS[i], (selector == i) ? 0 : 1);
 	}
 
+	// set segment pins
 	for (uint i = 0; i < 8; ++i) {
 		gpio_put(SEGMENT_PINS[i], display[selector][i]);
 	}
@@ -97,8 +115,11 @@ void display_digit(uint selector) {
 	sleep_ms(2);
 }
 
+/*
+ *	Display all digits of 7-segment display for 8 seconds
+ */
 void display_all() {
-	for (uint i = 0; i < 250; ++i) {
+	for (uint i = 0; i < 1000; ++i) {
 		for (uint j = 0; j < 4; ++j) {
 			display_digit(j);
 		}
@@ -119,16 +140,11 @@ void button_callback() {
 
 void print_dht_reading() {
 	// read from dht
-	printf("Reading from dht...\n");
 	dht_reading reading;
 	read_from_dht(&reading);
 
-	// print reading
+	// print reading to 7-segment pins
 	float fahrenheit = (reading.temp_celsius * 9 / 5) + 32;
-	printf("Humidity = %.1f%%, Temperature = %.1fC (%.1fF)\n",
-		   reading.humidity, reading.temp_celsius, fahrenheit);
-
-	// display digit
 	set_digit(0, (uint)(fahrenheit) / 10);
 	set_digit(1, (uint)(fahrenheit) % 10);
 	set_digit(2, (uint)(reading.humidity) / 10);
@@ -137,7 +153,15 @@ void print_dht_reading() {
 }
 
 int main() {
-    stdio_init_all();
+	// declare binary info
+	bi_decl(bi_program_name("7-segment Thermometer"));
+	bi_decl(bi_program_description("A thermometer using a DHT11 and a 7-segment display"));
+	bi_decl(bi_pin_mask_with_name(0x1f << (D1_PIN), "7-segment digit pins 0-3"));
+	bi_decl(bi_pin_mask_with_name(0xff << (A_PIN), "7-segment segment pins 0-7"));
+	bi_decl(bi_1pin_with_name(DHT_PIN, "DHT11 pin"));
+	bi_decl(bi_1pin_with_name(BUTTON_PIN, "Button input"));
+	bi_decl(bi_program_version_string("0.1.0"));
+	bi_decl(bi_program_url("https://github.com/raccog/pico-thermometer"));
 
 	// init gpio pins
     gpio_init(DHT_PIN);
@@ -184,6 +208,10 @@ int main() {
     }
 }
 
+/*
+ * Taken from https://github.com/raspberrypi/pico-examples/blob/master/gpio/dht_sensor/dht.c
+ *
+ */
 void read_from_dht(dht_reading *result) {
     int data[5] = {0, 0, 0, 0, 0};
     uint last = 1;
@@ -224,7 +252,5 @@ void read_from_dht(dht_reading *result) {
         if (data[2] & 0x80) {
             result->temp_celsius = -result->temp_celsius;
         }
-    } else {
-        printf("Bad data\n");
     }
 }
